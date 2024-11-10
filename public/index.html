@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Dashboard</title>
+    <link href="/public/styles.css" rel="stylesheet" type="text/css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="logo">IOT</div>
+            <nav>
+                <a href="#" class="nav-item active" data-section="dashboard">Dashboard</a>
+                <a href="#" class="nav-item" data-section="sensor-log">Sensor Log</a>
+                <a href="#" class="nav-item" data-section="action-log">Action Log</a>
+            </nav>
+        </div>
+
+        <div class="main-content">
+            <div id="dashboard" class="content-section">
+                <div class="sensor-cards">
+                    <div class="card humidity">
+                        <div class="card-title">Độ Ẩm (%)</div>
+                        <div class="card-value" id="humidity-value">--</div>
+                    </div>
+                    <div class="card temperature">
+                        <div class="card-title">Nhiệt Độ (°C)</div>
+                        <div class="card-value" id="temperature-value">--</div>
+                    </div>
+                    <div class="card light">
+                        <div class="card-title">Ánh Sáng (Lux)</div>
+                        <div class="card-value" id="light-value">--</div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="sensorChart"></canvas>
+                </div>
+
+                <div class="led-controls">
+                    <div class="led-control">
+                        <div class="led-label">Đèn 1</div>
+                        <button class="led-button" data-led="led1">
+                            <div class="bulb-icon">💡</div>
+                            <span>OFF</span>
+                        </button>
+                    </div>
+                    <div class="led-control">
+                        <div class="led-label">Đèn 2</div>
+                        <button class="led-button" data-led="led2">
+                            <div class="bulb-icon">💡</div>
+                            <span>OFF</span>
+                        </button>
+                    </div>
+                    <div class="led-control">
+                        <div class="led-label">Đèn 3</div>
+                        <button class="led-button" data-led="led3">
+                            <div class="bulb-icon">💡</div>
+                            <span>OFF</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sensor-log" class="content-section" style="display: none;">
+                <h2>Sensor Log</h2>
+                <table id="sensor-log-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Temperature (°C)</th>
+                            <th>Humidity (%)</th>
+                            <th>Light (Lux)</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div id="action-log" class="content-section" style="display: none;">
+                <h2>Action Log</h2>
+                <table id="action-log-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>LED</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const sensorData = {
+            labels: [],
+            datasets: [
+                { label: 'Temperature', data: [], borderColor: '#ff4444' },
+                { label: 'Humidity', data: [], borderColor: '#4444ff' },
+                { label: 'Light', data: [], borderColor: '#ff8c00' }
+            ]
+        };
+
+        const ctx = document.getElementById('sensorChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: sensorData,
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true },
+                    x: { beginAtZero: true }
+                }
+            }
+        });
+
+        function updateChart(data) {
+            const now = new Date().toLocaleTimeString();
+            sensorData.labels.push(now);
+            sensorData.datasets[0].data.push(data.temperature);
+            sensorData.datasets[1].data.push(data.humidity);
+            sensorData.datasets[2].data.push(data.light_level);
+
+            if (sensorData.labels.length > 10) {
+                sensorData.labels.shift();
+                sensorData.datasets.forEach(dataset => dataset.data.shift());
+            }
+
+            chart.update();
+        }
+
+        function updateSensorValues(data) {
+            document.getElementById('temperature-value').textContent = data.temperature + '°C';
+            document.getElementById('humidity-value').textContent = data.humidity + '%';
+            document.getElementById('light-value').textContent = data.light_level + ' Lux';
+        }
+
+        const eventSource = new EventSource('http://localhost:3000/api/sse');
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            updateSensorValues(data);
+            updateChart(data);
+        };
+
+        function fetchSensorLog() {
+            fetch('http://localhost:3000/api/sensor_log')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.querySelector('#sensor-log-table tbody');
+                    tbody.innerHTML = '';
+                    data.forEach(log => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `<td>${new Date(log.timestamp).toLocaleString()}</td>
+                                         <td>${log.temperature}</td>
+                                         <td>${log.humidity}</td>
+                                         <td>${log.light_level}</td>`;
+                        tbody.appendChild(row);
+                    });
+                });
+        }
+
+        function fetchActionLog() {
+            fetch('http://localhost:3000/api/action_log')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.querySelector('#action-log-table tbody');
+                    tbody.innerHTML = '';
+                    data.forEach(log => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `<td>${new Date(log.timestamp).toLocaleString()}</td>
+                                         <td>${log.led_name}</td>
+                                         <td>${log.command}</td>`;
+                        tbody.appendChild(row);
+                    });
+                });
+        }
+
+        function updateLEDStates() {
+            fetch('http://localhost:3000/api/led_states')
+                .then(response => response.json())
+                .then(data => {
+                    data.forEach(led => {
+                        const button = document.querySelector(`button[data-led="${led.led_name}"]`);
+                        if (button) {
+                            button.classList.toggle('on', led.status === 'on');
+                            button.classList.toggle('off', led.status === 'off');
+                            button.querySelector('span').textContent = led.status.toUpperCase();
+                        }
+                    });
+                });
+        }
+
+        document.querySelectorAll('.led-button').forEach(button => {
+        button.addEventListener('click', () => {
+            const led = button.dataset.led;
+            const action = button.classList.contains('on') ? 'off' : 'on';
+
+            fetch('http://localhost:3000/api/set_led', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ led: led, action: action }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    button.classList.toggle('on');
+                    button.classList.toggle('off');
+                    button.querySelector('span').textContent = action.toUpperCase();
+                    fetchActionLog();  // Refresh action log
+                }
+            });
+        });
+    });
+
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const section = item.dataset.section;
+                document.querySelectorAll('.content-section').forEach(sec => {
+                    sec.style.display = 'none';
+                });
+                document.getElementById(section).style.display = 'block';
+                if (section === 'sensor-log') fetchSensorLog();
+                if (section === 'action-log') fetchActionLog();
+            });
+        });
+
+        // Initial fetch of LED states and logs
+        updateLEDStates();
+        fetchActionLog();
+
+        // Periodically update LED states and logs
+        setInterval(() => {
+            updateLEDStates();
+            if (document.getElementById('action-log').style.display !== 'none') {
+                fetchActionLog();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

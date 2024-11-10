@@ -1,0 +1,160 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <BH1750.h>
+#include <ArduinoJson.h>
+
+#define DHTPIN 4
+#define DHTTYPE DHT11
+#define LED1 16
+#define LED2 18
+#define LED3 19
+
+const char* ssid = "DucTruong";
+const char* password = "12345689";
+const char* mqtt_server = "192.168.1.6";
+const char* mqtt_username = "duc1";
+const char* mqtt_password = "1234";
+
+DHT dht(DHTPIN, DHTTYPE);
+BH1750 lightMeter;
+
+boolean measure = true;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void setup_wifi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("WiFi connected");
+}
+
+void publishLedState(const char* led, const char* state) {
+  char topic[20];
+  snprintf(topic, sizeof(topic), "home/%s/state", led);
+  client.publish(topic, state);
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  payload[length] = '\0';
+  String message = String((char*)payload);
+
+  if (strcmp(topic, "home/led/led1") == 0) {
+    digitalWrite(LED1, message == "on" ? HIGH : LOW);
+    publishLedState("led1", message.c_str());
+  } else if (strcmp(topic, "home/led/led2") == 0) {
+    digitalWrite(LED2, message == "on" ? HIGH : LOW);
+    publishLedState("led2", message.c_str());
+  } else if (strcmp(topic, "home/led/led3") == 0) {
+    digitalWrite(LED3, message == "on" ? HIGH : LOW);
+    publishLedState("led3", message.c_str());
+  }
+
+  if (strcmp(topic, "home/led/all") == 0) {
+    int state = (message == "on") ? HIGH : LOW;
+    digitalWrite(LED1, state);
+    digitalWrite(LED2, state);
+    digitalWrite(LED3, state);
+    publishLedState("led1", message.c_str());
+    publishLedState("led2", message.c_str());
+    publishLedState("led3", message.c_str());
+    publishLedState("all", message.c_str());
+  }
+
+  if (strcmp(topic, "home/sensor/ss") == 0) {
+    measure = (message == "start");
+  }
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    if (client.connect("ESP32Client", mqtt_username, mqtt_password)) {
+      Serial.println("connected");
+      client.subscribe("home/led/led1");
+      client.subscribe("home/led/led2");
+      client.subscribe("home/led/led3");
+      client.subscribe("home/led/all");
+      client.subscribe("home/sensor/ss");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  setup_wifi();
+  client.setServer(mqtt_server, 8080);
+  client.setCallback(callback);
+
+  dht.begin();
+  Wire.begin();
+  lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
+
+  pinMode(LED1, OUTPUT);
+  pinMode(LED2, OUTPUT);
+  pinMode(LED3, OUTPUT);
+  digitalWrite(LED1, LOW);
+  digitalWrite(LED2, LOW);
+  digitalWrite(LED3, LOW);
+
+  publishLedState("led1", "off");
+  publishLedState("led2", "off");
+  publishLedState("led3", "off");
+  publishLedState("all", "off");
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  if (measure) {
+    float temp = dht.readTemperature();
+    float hum = dht.readHumidity();
+    float lux = lightMeter.readLightLevel();
+
+    if (isnan(temp) || isnan(hum) || isnan(lux)) {
+      Serial.println("Failed to read from sensor!");
+      return;
+    }
+
+    StaticJsonDocument<200> doc;
+    doc["sensor_id"] = "ESP32_01";
+    doc["temperature"] = temp;
+    doc["humidity"] = hum;
+    doc["light_level"] = lux;
+    doc["timestamp"] = millis();
+
+    char jsonBuffer[200];
+    serializeJson(doc, jsonBuffer);
+
+    client.publish("home/sensor/data", jsonBuffer);
+    Serial.println(jsonBuffer);
+
+    delay(1000);
+  }
+}
+
+
+
+// mosquitto_sub -h 192.168.1.6 -p 8080 -t "home/#" -u "duc1" -P "1234" -v
+// mosquitto_pub -h 192.168.144.250 -p 8080 -t "home/sensor/ss" -m "stop" -u "duc1" -P "1234"
+// mosquitto_pub -h 192.168.230.250 -p 8080 -t "home/led/all" -m "off" -u "duc1" -P "1234"
+// mosquitto_pub -h 192.168.1.6 -p 8080 -t "home/led1" -m "off" -u "duc1" -P "1234"

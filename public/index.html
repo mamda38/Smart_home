@@ -66,13 +66,33 @@
 
             <div id="sensor-log" class="content-section" style="display: none;">
                 <h2>Sensor Log</h2>
-                <table id="sensor-log-table">
+                <div class="search-bar">
+                    <input type="text" id="sensorSearchTime" placeholder="Search by time (YYYY-MM-DD HH:MM:SS)" />
+                    <button onclick="handleSensorSearch()">Search</button>
+                </div>
+                <div class="filter-bar">
+                    <label for="sensorType">Filter by Sensor Type: </label>
+                    <select id="sensorType" onchange="handleSensorTypeFilter()">
+                        <option value="">All</option>
+                        <option value="temperature">Temperature</option>
+                        <option value="humidity">Humidity</option>
+                        <option value="light_level">Light Level</option>
+                    </select>
+
+                    <label for="sortOrder">Sort Order: </label>
+                    <select id="sortOrder" onchange="handleSortOrder()">
+                        <option value="">No Sort</option>
+                        <option value="asc">Ascending</option>
+                        <option value="desc">Descending</option>
+                    </select>
+                </div>
+                <table id="sensorLogTable">
                     <thead>
                         <tr>
                             <th>Timestamp</th>
-                            <th>Temperature (°C)</th>
-                            <th>Humidity (%)</th>
-                            <th>Light (Lux)</th>
+                            <th id="temperatureHeader">Temperature (°C)</th>
+                            <th id="humidityHeader">Humidity (%)</th>
+                            <th id="lightHeader">Light (Lux)</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -81,7 +101,19 @@
 
             <div id="action-log" class="content-section" style="display: none;">
                 <h2>Action Log</h2>
-                <table id="action-log-table">
+                <div class="search-bar">
+                    <input type="text" id="actionSearchTime" placeholder="Search by time (YYYY-MM-DD HH:MM:SS)" />
+                    <button onclick="handleActionSearch()">Search</button>
+                </div>
+                <!-- <div class="filter-bar">
+                    <label for="actionSortOrder">Sort Order: </label>
+                    <select id="actionSortOrder" onchange="handleActionSearch()">
+                        <option value="">No Sort</option>
+                        <option value="asc">Ascending</option>
+                        <option value="desc">Descending</option>
+                    </select>
+                </div> -->
+                <table id="actionLogTable">
                     <thead>
                         <tr>
                             <th>Timestamp</th>
@@ -95,153 +127,6 @@
         </div>
     </div>
 
-    <script>
-        const sensorData = {
-            labels: [],
-            datasets: [
-                { label: 'Temperature', data: [], borderColor: '#ff4444' },
-                { label: 'Humidity', data: [], borderColor: '#4444ff' },
-                { label: 'Light', data: [], borderColor: '#ff8c00' }
-            ]
-        };
-
-        const ctx = document.getElementById('sensorChart').getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'line',
-            data: sensorData,
-            options: {
-                responsive: true,
-                scales: {
-                    y: { beginAtZero: true },
-                    x: { beginAtZero: true }
-                }
-            }
-        });
-
-        function updateChart(data) {
-            const now = new Date().toLocaleTimeString();
-            sensorData.labels.push(now);
-            sensorData.datasets[0].data.push(data.temperature);
-            sensorData.datasets[1].data.push(data.humidity);
-            sensorData.datasets[2].data.push(data.light_level);
-
-            if (sensorData.labels.length > 10) {
-                sensorData.labels.shift();
-                sensorData.datasets.forEach(dataset => dataset.data.shift());
-            }
-
-            chart.update();
-        }
-
-        function updateSensorValues(data) {
-            document.getElementById('temperature-value').textContent = data.temperature + '°C';
-            document.getElementById('humidity-value').textContent = data.humidity + '%';
-            document.getElementById('light-value').textContent = data.light_level + ' Lux';
-        }
-
-        const eventSource = new EventSource('http://localhost:3000/api/sse');
-        eventSource.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            updateSensorValues(data);
-            updateChart(data);
-        };
-
-        function fetchSensorLog() {
-            fetch('http://localhost:3000/api/sensor_log')
-                .then(response => response.json())
-                .then(data => {
-                    const tbody = document.querySelector('#sensor-log-table tbody');
-                    tbody.innerHTML = '';
-                    data.forEach(log => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `<td>${new Date(log.timestamp).toLocaleString()}</td>
-                                         <td>${log.temperature}</td>
-                                         <td>${log.humidity}</td>
-                                         <td>${log.light_level}</td>`;
-                        tbody.appendChild(row);
-                    });
-                });
-        }
-
-        function fetchActionLog() {
-            fetch('http://localhost:3000/api/action_log')
-                .then(response => response.json())
-                .then(data => {
-                    const tbody = document.querySelector('#action-log-table tbody');
-                    tbody.innerHTML = '';
-                    data.forEach(log => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `<td>${new Date(log.timestamp).toLocaleString()}</td>
-                                         <td>${log.led_name}</td>
-                                         <td>${log.command}</td>`;
-                        tbody.appendChild(row);
-                    });
-                });
-        }
-
-        function updateLEDStates() {
-            fetch('http://localhost:3000/api/led_states')
-                .then(response => response.json())
-                .then(data => {
-                    data.forEach(led => {
-                        const button = document.querySelector(`button[data-led="${led.led_name}"]`);
-                        if (button) {
-                            button.classList.toggle('on', led.status === 'on');
-                            button.classList.toggle('off', led.status === 'off');
-                            button.querySelector('span').textContent = led.status.toUpperCase();
-                        }
-                    });
-                });
-        }
-
-        document.querySelectorAll('.led-button').forEach(button => {
-        button.addEventListener('click', () => {
-            const led = button.dataset.led;
-            const action = button.classList.contains('on') ? 'off' : 'on';
-
-            fetch('http://localhost:3000/api/set_led', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ led: led, action: action }),
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    button.classList.toggle('on');
-                    button.classList.toggle('off');
-                    button.querySelector('span').textContent = action.toUpperCase();
-                    fetchActionLog();  // Refresh action log
-                }
-            });
-        });
-    });
-
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                e.preventDefault();
-                const section = item.dataset.section;
-                document.querySelectorAll('.content-section').forEach(sec => {
-                    sec.style.display = 'none';
-                });
-                document.getElementById(section).style.display = 'block';
-                if (section === 'sensor-log') fetchSensorLog();
-                if (section === 'action-log') fetchActionLog();
-            });
-        });
-
-        // Initial fetch of LED states and logs
-        updateLEDStates();
-        fetchActionLog();
-
-        // Periodically update LED states and logs
-        setInterval(() => {
-            updateLEDStates();
-            if (document.getElementById('action-log').style.display !== 'none') {
-                fetchActionLog();
-            }
-        }, 5000);
-    </script>
+    <script src="/public/script.js"></script>
 </body>
 </html>
